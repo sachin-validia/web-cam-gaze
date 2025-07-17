@@ -11,7 +11,7 @@ gaze_estimator:
   checkpoint: ${PACKAGE_ROOT}/plgaze/models/eth-xgaze/eth-xgaze_resnet18.pth
   camera_params: ${PACKAGE_ROOT}/plgaze/data/calib/sample_params.yaml
   use_dummy_camera_params: false
-  normalized_camera_params: ${PACKAGE_ROOT}/plgaze./data/normalized_camera_params/eth-xgaze.yaml
+  normalized_camera_params: ${PACKAGE_ROOT}/plgaze/data/normalized_camera_params/eth-xgaze.yaml
   normalized_camera_distance: 0.6
   image_size: [224, 224]
 demo:

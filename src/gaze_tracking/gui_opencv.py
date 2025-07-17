@@ -327,12 +327,27 @@ def getWebcamSize(cap):
 
 def getScreenSize():
     screen = screeninfo.get_monitors()
+    width = height = width_mm = height_mm = None
+    
     for s in screen:
         if s.is_primary:
             width = s.width
             height = s.height
             width_mm = s.width_mm
             height_mm = s.height_mm
+            break
+    
+    # If no primary screen found, use the first monitor
+    if width is None and screen:
+        s = screen[0]
+        width = s.width
+        height = s.height
+        width_mm = s.width_mm
+        height_mm = s.height_mm
+    
+    if width is None:
+        raise RuntimeError("No screens detected")
+    
     print(f"Screen Size: {width}x{height}")
     return width, height, width_mm, height_mm
 

@@ -71,7 +71,7 @@ class Visualizer:
         assert face.head_position is not None
         assert face.landmarks is not None
         # Get the axes of the model coordinate system
-        axes3d = np.eye(3, dtype=np.float) @ Rotation.from_euler(
+        axes3d = np.eye(3, dtype=np.float64) @ Rotation.from_euler(
             'XYZ', [0, np.pi, 0]).as_matrix()
         axes3d = axes3d * length
         axes2d = self._camera.project_points(axes3d,

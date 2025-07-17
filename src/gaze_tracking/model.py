@@ -5,11 +5,10 @@ import cv2
 import time
 
 import logging as log
-from turtle import width
 
 import numpy as np
 import math
-from openvino.inference_engine import IENetwork, IECore
+from openvino.runtime import Core
 
 from skimage.measure import label, regionprops
 import utilities.utils as util
@@ -31,23 +30,23 @@ class Model(metaclass=abc.ABCMeta):
     def _init_model(self, model_name, device, extensions):
         model_weights = model_name+'.bin'
         model_structure = model_name+'.xml'
-        self.core = IECore()
+        self.core = Core()
         if extensions and "CPU" in device:
-            self.core.add_extension(extensions, device)
+            self.core.add_extension(extensions)
         try:
-            self.model = self.core.read_network(model=model_structure, weights=model_weights)
+            self.model = self.core.read_model(model=model_structure, weights=model_weights)
         except Exception as e:
             raise ValueError("Could not Initialise the network. Have you enterred the correct model path?")
 
     def _init_input_output(self, model):
-        self.input_name = next(iter(model.input_info))
-        self.input_shape = model.input_info[self.input_name].input_data.shape
+        self.input_name = next(iter(model.inputs))
+        self.input_shape = model.inputs[self.input_name].shape
         self.output_name = next(iter(model.outputs))
         self.output_shape = model.outputs[self.output_name].shape
 
     def load_model(self):
         try:
-            self.net = self.core.load_network(network=self.model, device_name=self.device, num_requests=1)
+            self.net = self.core.compile_model(model=self.model, device_name=self.device)
         except Exception as e:
             print(f"Something went wrong when loading model: {e}")
             exit()
@@ -55,13 +54,15 @@ class Model(metaclass=abc.ABCMeta):
     def get_input_shape(self, input_name=None):
         if input_name is None:
             return self.input_shape
-        return self.model.input_info[input_name].input_data.shape
+        return self.model.inputs[input_name].shape
 
     def exec_net(self, request_id, inputs):
         if isinstance(inputs, dict):
-            self.net.start_async(request_id=request_id, inputs=inputs)
+            self.infer_request = self.net.create_infer_request()
+            self.infer_request.start_async(inputs=inputs)
         else:
-            self.net.start_async(request_id=request_id, inputs={self.input_name: inputs})
+            self.infer_request = self.net.create_infer_request()
+            self.infer_request.start_async(inputs={self.input_name: inputs})
     
     @abc.abstractmethod
     def predict(self, image):
@@ -81,17 +82,27 @@ class Model(metaclass=abc.ABCMeta):
         # image = image.reshape(1, *input_image.shape)
         return input_image
 
-    def get_outputs(self, request_id):
-        outputs = self.net.requests[request_id].output_blobs
-        return outputs
+    def get_outputs(self, request_id=None):
+        if hasattr(self, 'infer_request'):
+            self.infer_request.wait()
+            outputs = {}
+            for output in self.model.outputs:
+                outputs[output.get_any_name()] = self.infer_request.get_output_tensor(output.get_any_name()).data
+            return outputs
+        return {}
 
-    def get_output(self, request_id):     
-        output = self.net.requests[request_id].output_blobs[self.output_name]
-        return output
+    def get_output(self, request_id=None):     
+        if hasattr(self, 'infer_request'):
+            self.infer_request.wait()
+            output = self.infer_request.get_output_tensor(self.output_name).data
+            return output
+        return None
 
-    def wait(self, request_id):
-        status = self.net.requests[request_id].wait()
-        return status
+    def wait(self, request_id=None):
+        if hasattr(self, 'infer_request'):
+            self.infer_request.wait()
+            return 0
+        return -1
 
 class FaceDetection(Model):
     '''
