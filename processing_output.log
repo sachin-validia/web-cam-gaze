@@ -1,7 +1,0 @@
-Found 15 video files to process
-Processing video: on-camera
-INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
-Video properties: 1920x1080, 29.550451386679676 fps, 418 frames
-Progress: 7.2% (30/418 frames)
-Progress: 14.4% (60/418 frames)
-Progress: 21.5% (90/418 frames)

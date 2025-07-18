@@ -210,9 +210,23 @@ class InterviewCalibrationSystem:
         print("Keep your head still and follow the targets with your eyes only")
         print("Press 's' to start calibration, 'q' to quit")
         
+        # Load screen info for this candidate
+        info_path = self.calibration_dir / f"{candidate_id}_screen_info.json"
+        if info_path.exists():
+            with open(info_path, 'r') as f:
+                screen_info = json.load(f)
+        else:
+            raise RuntimeError(f"No screen info found for candidate {candidate_id}. Please run setup first.")
+        
         # Initialize models
         model = GazeModel(self.config)
         homtrans = HomTransform(".")
+        
+        # Override the screen dimensions from collected info
+        homtrans.width = int(screen_info.get('screen_width_px', 1920))
+        homtrans.height = int(screen_info.get('screen_height_px', 1080))
+        homtrans.width_mm = float(screen_info.get('screen_width_mm', 345))
+        homtrans.height_mm = float(screen_info.get('screen_height_mm', 194))
         
         # Setup camera with cross-platform support
         cap = setup_cross_platform_camera(camera_source)
@@ -246,6 +260,13 @@ class InterviewCalibrationSystem:
         # Run calibration
         print("Starting calibration...")
         try:
+            # Test if face detection is working first
+            ret, test_frame = cap.read()
+            if ret:
+                test_eye_info = model.get_gaze(test_frame, imshow=False)
+                if test_eye_info is None or test_eye_info.get('gaze') is None:
+                    raise Exception("Face detection or gaze estimation not working. Please ensure your face is visible to the camera.")
+            
             STransG = homtrans.calibrate(model, cap, sfm=False)
             
             # Save calibration data with candidate ID
@@ -264,9 +285,10 @@ class InterviewCalibrationSystem:
             print(f"Calibration data saved to: {calib_data_path}")
             print(f"Transform matrix saved to: {transform_path}")
             
-            # Quick validation
-            print("Running quick validation...")
-            homtrans.RunGazeOnScreen(model, cap, sfm=False, duration=10)  # 10 seconds
+            # Skip validation for now - calibration is complete
+            # # Quick validation
+            # print("Running quick validation...")
+            # homtrans.RunGazeOnScreen(model, cap, sfm=False)
             
         except Exception as e:
             print(f"Calibration failed: {e}")

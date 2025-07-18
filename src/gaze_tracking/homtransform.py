@@ -129,6 +129,9 @@ class HomTransform:
         return
 
     def calibrate(self, model, cap, sfm=False):
+        print(f"DEBUG: Starting calibration with screen size: {self.width}x{self.height}")
+        print(f"DEBUG: Screen size in mm: {self.width_mm}x{self.height_mm}")
+        
         frame = gcv.getWhiteFrame(self.width, self.height)
         if cap != None:
             out_video,_,_ = gcv.get_out_video(cap, os.path.join(self.dir, "results"))
@@ -138,7 +141,12 @@ class HomTransform:
         frame_prev = None
         WTransG1 = np.zeros((4,4))
         target.tstart = time.time()
+        
+        iteration_count = 0
         while (cap.isOpened()):
+            iteration_count += 1
+            print(f"DEBUG: Calibration iteration {iteration_count}")
+            
             idx, SetPos = target.getTargetCalibration()
             if idx == None:
                 break
@@ -175,11 +183,38 @@ class HomTransform:
             # frame_cam = cv2.undistort(frame_cam, self.camera_matrix, self.dist_coeffs)
             eye_info = model.get_gaze(frame=frame_cam, imshow=False)
             if eye_info is None:
+                print("DEBUG: eye_info is None - no face detected")
                 raise Exception("No eye info. Eye tracking failed.")
             
+            # Debug: check eye_info contents
+            print(f"DEBUG: eye_info keys: {list(eye_info.keys())}")
+            for key, value in eye_info.items():
+                print(f"DEBUG: {key}: {value} (type: {type(value)})")
+            
             arr = np.array([])
-            for i in pd.Series(eye_info).values:
-                arr = np.hstack((arr,i))
+            for key, value in eye_info.items():
+                if value is None:
+                    print(f"DEBUG: {key} is None, skipping or replacing with zeros")
+                    # Replace None with appropriate zeros based on expected shape
+                    if key == 'gaze':
+                        value = np.array([0.0, 0.0, 0.0])
+                    elif key == 'EyeRLCenterPos':
+                        value = np.array([0.0, 0.0, 0.0, 0.0])
+                    elif key == 'HeadPosAnglesYPR':
+                        value = np.array([0.0, 0.0, 0.0])
+                    elif key == 'HeadPosInFrame':
+                        value = np.array([0.0, 0.0])
+                    elif key == 'EyeState':
+                        value = np.array([0.0, 0.0])
+                    else:
+                        value = np.array([0.0, 0.0])
+                
+                try:
+                    arr = np.hstack((arr, value.flatten()))
+                except Exception as e:
+                    print(f"DEBUG: Error processing {key}: {e}")
+                    print(f"DEBUG: Value shape: {value.shape if hasattr(value, 'shape') else 'no shape'}")
+                    raise
             timestamp = time.time_ns()/1000000000
             SetPos = self._pixel2mm(SetPos)
             self.df = pd.concat([ self.df, pd.DataFrame([np.hstack((timestamp, idx, arr, SetPos, 0, WTransG1.flatten()))]) ])

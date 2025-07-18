@@ -315,9 +315,30 @@ def get_out_video(cap, output_path, file_name = "calibrate.mp4", scalewidth = 1)
 
 def display_window(frame):
     window_name = "CalibWindow"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)    
+    
+    # Create window and force fullscreen immediately
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    
+    # Get screen dimensions
+    try:
+        monitors = screeninfo.get_monitors()
+        if monitors:
+            primary = monitors[0]
+            # Resize frame to match screen size
+            frame_resized = cv2.resize(frame, (primary.width, primary.height))
+            # Move window to top-left corner and resize to full screen
+            cv2.moveWindow(window_name, 0, 0)
+            cv2.resizeWindow(window_name, primary.width, primary.height)
+        else:
+            frame_resized = frame
+    except:
+        frame_resized = frame
+    
+    # Set fullscreen property
     cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.imshow(window_name, frame)
+    
+    # Display the frame
+    cv2.imshow(window_name, frame_resized)
 
 def getWebcamSize(cap):
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) # get frame width in pixel
