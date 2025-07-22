@@ -16,10 +16,14 @@ import sys
 from omegaconf import OmegaConf
 import screeninfo
 
-sys.path.append('src')
-from plgaze.model_pl_gaze import GazeModel
-from gaze_tracking.homtransform import HomTransform
-from platform_utils import get_platform_manager, setup_cross_platform_camera, create_cross_platform_window, optimize_config_for_platform
+# Add project paths
+project_root = pathlib.Path(__file__).parent.parent.parent
+sys.path.append(str(project_root / 'src'))
+sys.path.append(str(project_root))
+
+from src.plgaze.model_pl_gaze import GazeModel
+from src.gaze_tracking.homtransform import HomTransform
+from utils.platform_utils import get_platform_manager
 
 class InterviewCalibrationSystem:
     """
@@ -32,26 +36,55 @@ class InterviewCalibrationSystem:
         
         # Load gaze estimation config
         if config_path is None:
-            package_root = pathlib.Path(__file__).parent / 'src'
+            project_root = pathlib.Path(__file__).parent.parent.parent
+            package_root = project_root / 'src'
             config_path = package_root / 'plgaze/data/configs/eth-xgaze.yaml'
         
         self.config = OmegaConf.load(config_path)
-        self.config.PACKAGE_ROOT = (pathlib.Path(__file__).parent / 'src').as_posix()
+        self.config.PACKAGE_ROOT = (project_root / 'src').as_posix()
         
-        # Optimize config for current platform
-        self.config = optimize_config_for_platform(self.config)
+        # Platform-specific optimizations
+        self._optimize_config_for_platform()
         
         # Results directory
         self.calibration_dir = pathlib.Path("results/interview_calibrations")
         self.calibration_dir.mkdir(exist_ok=True, parents=True)
+    
+    def _optimize_config_for_platform(self):
+        """Optimize config for current platform"""
+        if self.platform_manager.is_mac_silicon:
+            # Mac Silicon optimizations
+            if hasattr(self.config, 'device'):
+                self.config.device = 'mps'
+        elif self.platform_manager.system == 'windows':
+            # Windows optimizations
+            if hasattr(self.config, 'num_workers'):
+                self.config.num_workers = min(self.config.get('num_workers', 4), 2)
+    
+    def _setup_cross_platform_camera(self, camera_source=0):
+        """Setup camera with platform-specific backend"""
+        if self.platform_manager.system == 'darwin':
+            cap = cv2.VideoCapture(camera_source, cv2.CAP_AVFOUNDATION)
+        elif self.platform_manager.system == 'windows':
+            cap = cv2.VideoCapture(camera_source, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(camera_source, cv2.CAP_V4L2)
+        
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(camera_source)
+        
+        return cap
+    
+    def _create_cross_platform_window(self, window_name, fullscreen=False):
+        """Create window with platform-specific settings"""
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        if fullscreen:
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+        return window_name
         
     def collect_screen_info(self, candidate_id, manual_input=True):
         """
         Collect screen dimension information from candidate
-        
-        Methods:
-        1. Automatic detection using screeninfo
-        2. Manual input for missing information
         """
         
         print(f"\n=== Screen Information Collection for Candidate {candidate_id} ===")
@@ -78,7 +111,11 @@ class InterviewCalibrationSystem:
         
         # Automatically detect screen information
         print("Automatically detecting screen information...")
-        monitors = screeninfo.get_monitors()
+        try:
+            monitors = screeninfo.get_monitors()
+        except Exception as e:
+            print(f"Screen detection failed: {e}")
+            monitors = []
         
         if not monitors:
             print("ERROR: No monitors detected! Falling back to manual input.")
@@ -87,40 +124,53 @@ class InterviewCalibrationSystem:
             # Find primary monitor or use first one
             primary_monitor = None
             for monitor in monitors:
-                if monitor.is_primary:
+                if hasattr(monitor, 'is_primary') and monitor.is_primary:
                     primary_monitor = monitor
                     break
             
             if not primary_monitor:
                 primary_monitor = monitors[0]
-                print(f"No primary monitor found, using: {primary_monitor.name}")
+                print(f"No primary monitor found, using first monitor")
             else:
-                print(f"Using primary monitor: {primary_monitor.name}")
+                print(f"Using primary monitor")
             
             # Get screen dimensions
             screen_width = primary_monitor.width
             screen_height = primary_monitor.height
-            screen_width_mm = primary_monitor.width_mm if hasattr(primary_monitor, 'width_mm') else None
-            screen_height_mm = primary_monitor.height_mm if hasattr(primary_monitor, 'height_mm') else None
+            screen_width_mm = getattr(primary_monitor, 'width_mm', None)
+            screen_height_mm = getattr(primary_monitor, 'height_mm', None)
             
             print(f"Detected screen resolution: {screen_width}x{screen_height} pixels")
             
             # Handle missing physical dimensions
             if not screen_width_mm or not screen_height_mm or screen_width_mm <= 0 or screen_height_mm <= 0:
                 print("\nPhysical screen dimensions not detected automatically.")
-                print("Please provide physical screen size for accurate gaze mapping:")
-                print("(You can find this in display settings or measure with a ruler)")
+                print("Applying automatic conversion (1 pixel = 0.2645833333 mm)")
                 
-                while True:
-                    try:
-                        screen_width_mm = float(input("Screen width in mm (e.g., 345): "))
-                        screen_height_mm = float(input("Screen height in mm (e.g., 194): "))
-                        if screen_width_mm > 0 and screen_height_mm > 0:
-                            break
-                        else:
-                            print("Please enter positive numbers")
-                    except ValueError:
-                        print("Please enter valid numbers")
+                # Automatic conversion from pixels to mm (96 DPI assumption)
+                px_to_mm = 25.4 / 96  # 96 DPI standard
+                screen_width_mm = screen_width * px_to_mm
+                screen_height_mm = screen_height * px_to_mm
+                
+                print(f"Calculated physical dimensions: {screen_width_mm:.1f}x{screen_height_mm:.1f} mm")
+                print(f"(Based on {screen_width}x{screen_height} pixels at 96 DPI)")
+                
+                # Ask user to confirm or override
+                use_auto = input("\nUse these automatically calculated dimensions? (y/n) [default: y]: ").strip().lower()
+                if use_auto == 'n':
+                    print("\nPlease provide physical screen size manually:")
+                    print("(You can find this in display settings or measure with a ruler)")
+                    
+                    while True:
+                        try:
+                            screen_width_mm = float(input("Screen width in mm (e.g., 345): "))
+                            screen_height_mm = float(input("Screen height in mm (e.g., 194): "))
+                            if screen_width_mm > 0 and screen_height_mm > 0:
+                                break
+                            else:
+                                print("Please enter positive numbers")
+                        except ValueError:
+                            print("Please enter valid numbers")
             else:
                 print(f"Detected physical dimensions: {screen_width_mm:.1f}x{screen_height_mm:.1f} mm")
             
@@ -147,7 +197,7 @@ class InterviewCalibrationSystem:
                 'distance_cm': distance_estimate,
                 'dpi': (screen_width / (screen_width_mm / 25.4)) if screen_width_mm > 0 else None,
                 'diagonal_inches': diagonal_inches,
-                'monitor_name': primary_monitor.name if not manual_input else 'unknown'
+                'monitor_name': getattr(primary_monitor, 'name', 'unknown')
             })
             
             print(f"\nScreen diagonal: {diagonal_inches:.1f} inches")
@@ -157,16 +207,18 @@ class InterviewCalibrationSystem:
         
         if manual_input:
             # Fallback to manual input
-            # Collect screen dimensions
+            print("Manual screen information input:")
             while True:
                 try:
                     screen_width = int(input("Screen width in pixels (e.g., 1920): "))
                     screen_height = int(input("Screen height in pixels (e.g., 1080): "))
-                    break
+                    if screen_width > 0 and screen_height > 0:
+                        break
+                    else:
+                        print("Please enter positive numbers")
                 except ValueError:
                     print("Please enter valid numbers")
             
-            # Collect physical dimensions
             print("\nFor accurate gaze mapping, we need physical screen size:")
             print("(You can find this in display settings or measure with a ruler)")
             
@@ -174,7 +226,10 @@ class InterviewCalibrationSystem:
                 try:
                     screen_width_mm = float(input("Screen width in mm (e.g., 345): "))
                     screen_height_mm = float(input("Screen height in mm (e.g., 194): "))
-                    break
+                    if screen_width_mm > 0 and screen_height_mm > 0:
+                        break
+                    else:
+                        print("Please enter positive numbers")
                 except ValueError:
                     print("Please enter valid numbers")
             
@@ -229,7 +284,7 @@ class InterviewCalibrationSystem:
         homtrans.height_mm = float(screen_info.get('screen_height_mm', 194))
         
         # Setup camera with cross-platform support
-        cap = setup_cross_platform_camera(camera_source)
+        cap = self._setup_cross_platform_camera(camera_source)
         if not cap.isOpened():
             raise RuntimeError(f"Could not open camera {camera_source} on {self.platform_manager.system}")
         
@@ -246,7 +301,7 @@ class InterviewCalibrationSystem:
             cv2.putText(frame, "Press 'q' to quit", (50, 130), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            window_name = create_cross_platform_window("Interview Calibration", fullscreen=False)
+            window_name = self._create_cross_platform_window("Interview Calibration", fullscreen=False)
             cv2.imshow(window_name, frame)
             
             key = cv2.waitKey(1) & 0xFF
@@ -277,18 +332,20 @@ class InterviewCalibrationSystem:
                 calib_df['candidate_id'] = candidate_id
                 calib_df.to_csv(calib_data_path, index=False)
             
-            # Save transformation matrix
-            transform_path = self.calibration_dir / f"{candidate_id}_transform_matrix.npy"
-            np.save(transform_path, STransG)
+            # Save complete calibration state
+            calib_state = {
+                'STransG': STransG,
+                'StG': homtrans.StG if hasattr(homtrans, 'StG') else None,
+                'SetValues': homtrans.SetValues if hasattr(homtrans, 'SetValues') else None
+            }
+            
+            # Save transformation data
+            transform_path = self.calibration_dir / f"{candidate_id}_transform_matrix.npz"
+            np.savez(transform_path, **calib_state)
             
             print(f"Calibration completed successfully!")
             print(f"Calibration data saved to: {calib_data_path}")
             print(f"Transform matrix saved to: {transform_path}")
-            
-            # Skip validation for now - calibration is complete
-            # # Quick validation
-            # print("Running quick validation...")
-            # homtrans.RunGazeOnScreen(model, cap, sfm=False)
             
         except Exception as e:
             print(f"Calibration failed: {e}")
@@ -311,12 +368,28 @@ class InterviewCalibrationSystem:
         with open(info_path, 'r') as f:
             screen_info = json.load(f)
         
-        # Load transform matrix
-        transform_path = self.calibration_dir / f"{candidate_id}_transform_matrix.npy"
-        if not transform_path.exists():
-            raise FileNotFoundError(f"No calibration matrix found for candidate {candidate_id}")
+        # Load transform matrix (try new format first, then old)
+        transform_path_npz = self.calibration_dir / f"{candidate_id}_transform_matrix.npz"
+        transform_path_npy = self.calibration_dir / f"{candidate_id}_transform_matrix.npy"
         
-        transform_matrix = np.load(transform_path)
+        calib_state = {}
+        if transform_path_npz.exists():
+            # Load new format with complete state
+            data = np.load(transform_path_npz, allow_pickle=True)
+            calib_state = {
+                'STransG': data['STransG'],
+                'StG': data['StG'] if 'StG' in data else None,
+                'SetValues': data['SetValues'] if 'SetValues' in data else None
+            }
+        elif transform_path_npy.exists():
+            # Load old format (just STransG)
+            calib_state = {
+                'STransG': np.load(transform_path_npy),
+                'StG': None,
+                'SetValues': None
+            }
+        else:
+            raise FileNotFoundError(f"No calibration matrix found for candidate {candidate_id}")
         
         # Load calibration data
         calib_data_path = self.calibration_dir / f"{candidate_id}_calibration.csv"
@@ -326,8 +399,9 @@ class InterviewCalibrationSystem:
         
         return {
             'screen_info': screen_info,
-            'transform_matrix': transform_matrix,
-            'calibration_data': calibration_data
+            'transform_matrix': calib_state['STransG'],
+            'calibration_data': calibration_data,
+            'calib_state': calib_state  # Include full calibration state
         }
     
     def setup_candidate(self, candidate_id, camera_source=0):
@@ -347,7 +421,7 @@ class InterviewCalibrationSystem:
         if transform_matrix is not None:
             print(f"\n✅ Setup completed successfully for {candidate_id}!")
             print(f"📁 Calibration files saved in: {self.calibration_dir}")
-            print(f"🎥 You can now start the interview recording")
+            print(f"🎬 You can now start the interview recording")
             print(f"📊 Use analyze_interview_video() to process the recorded video")
         else:
             print(f"\n❌ Setup failed for {candidate_id}")

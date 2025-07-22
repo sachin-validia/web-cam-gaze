@@ -79,8 +79,6 @@ batch_processing/
 interview_calibration/
 .claude/
 
-#old scripts
-old_scripts/
 
 # Model files (if too large for git)
 # Uncomment these if models are too large
@@ -97,3 +95,14 @@ old_scripts/
 # IPython
 profile_default/
 ipython_config.py
+
+# Migration backups
+backups/pre-migration/
+
+# Test outputs
+tests/test_output/
+tests/*.log
+
+#plan markdown
+RECOMMENDED_STRUCTURE.md
+

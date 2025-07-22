@@ -16,11 +16,15 @@ import seaborn as sns
 import sys
 from omegaconf import OmegaConf
 
-sys.path.append('src')
-from plgaze.model_pl_gaze import GazeModel
-from gaze_tracking.homtransform import HomTransform
-from interview_calibration_system import InterviewCalibrationSystem
-from platform_utils import get_platform_manager, optimize_config_for_platform
+# Add project paths
+project_root = pathlib.Path(__file__).parent.parent.parent
+sys.path.append(str(project_root / 'src'))
+sys.path.append(str(project_root))
+
+from src.plgaze.model_pl_gaze import GazeModel
+from src.gaze_tracking.homtransform import HomTransform
+from scripts.interview.calibration import InterviewCalibrationSystem
+from utils.platform_utils import get_platform_manager
 
 class InterviewVideoAnalyzer:
     """
@@ -35,13 +39,14 @@ class InterviewVideoAnalyzer:
         self.calib_system = InterviewCalibrationSystem()
         
         # Load gaze estimation config
-        package_root = pathlib.Path(__file__).parent / 'src'
+        project_root = pathlib.Path(__file__).parent.parent.parent
+        package_root = project_root / 'src'
         config_path = package_root / 'plgaze/data/configs/eth-xgaze.yaml'
         self.config = OmegaConf.load(config_path)
         self.config.PACKAGE_ROOT = package_root.as_posix()
         
         # Optimize config for current platform
-        self.config = optimize_config_for_platform(self.config)
+        self._optimize_config_for_platform()
         
         # Results directory
         self.analysis_dir = pathlib.Path("results/interview_analysis")
@@ -49,6 +54,17 @@ class InterviewVideoAnalyzer:
         
         # Initialize gaze model
         self.gaze_model = GazeModel(self.config)
+    
+    def _optimize_config_for_platform(self):
+        """Optimize config for current platform"""
+        if self.platform_manager.is_mac_silicon:
+            # Mac Silicon optimizations
+            if hasattr(self.config, 'device'):
+                self.config.device = 'mps'
+        elif self.platform_manager.system == 'windows':
+            # Windows optimizations
+            if hasattr(self.config, 'num_workers'):
+                self.config.num_workers = min(self.config.get('num_workers', 4), 2)
         
     def analyze_interview_video(self, video_path, candidate_id, output_name=None):
         """
@@ -62,6 +78,7 @@ class InterviewVideoAnalyzer:
             calib_data = self.calib_system.load_candidate_calibration(candidate_id)
             screen_info = calib_data['screen_info']
             transform_matrix = calib_data['transform_matrix']
+            calib_state = calib_data.get('calib_state', {})
             print(f"✅ Loaded calibration data for {candidate_id}")
         except FileNotFoundError as e:
             print(f"❌ Error: {e}")
@@ -103,6 +120,17 @@ class InterviewVideoAnalyzer:
         homtrans.width_mm = screen_info['screen_width_mm']
         homtrans.height_mm = screen_info['screen_height_mm']
         
+        # Load complete calibration state if available
+        if calib_state and 'StG' in calib_state and calib_state['StG'] is not None:
+            homtrans.StG = calib_state['StG']
+            if 'SetValues' in calib_state and calib_state['SetValues'] is not None:
+                homtrans.SetValues = calib_state['SetValues']
+        else:
+            # Fallback: Initialize with default calibration points
+            print("⚠️ Using fallback calibration state (may affect accuracy)")
+            homtrans.StG = []
+            homtrans.SetValues = homtrans.CalTargetMM()
+        
         print("Processing frames...")
         while True:
             ret, frame = cap.read()
@@ -130,16 +158,16 @@ class InterviewVideoAnalyzer:
                     row = {
                         'frame_number': frame_count,
                         'timestamp': timestamp,
-                        'gaze_x': gaze_vector[0],
-                        'gaze_y': gaze_vector[1],
-                        'gaze_z': gaze_vector[2],
-                        'screen_x_mm': screen_coords_mm[0],
-                        'screen_y_mm': screen_coords_mm[1],
-                        'screen_x_px': screen_coords_px[0],
-                        'screen_y_px': screen_coords_px[1],
-                        'yaw': eye_info['HeadPosAnglesYPR'][0],
-                        'pitch': eye_info['HeadPosAnglesYPR'][1],
-                        'roll': eye_info['HeadPosAnglesYPR'][2],
+                        'gaze_x': float(gaze_vector[0]),
+                        'gaze_y': float(gaze_vector[1]),
+                        'gaze_z': float(gaze_vector[2]),
+                        'screen_x_mm': float(screen_coords_mm[0]),
+                        'screen_y_mm': float(screen_coords_mm[1]),
+                        'screen_x_px': float(screen_coords_px[0]),
+                        'screen_y_px': float(screen_coords_px[1]),
+                        'yaw': float(eye_info['HeadPosAnglesYPR'][0]),
+                        'pitch': float(eye_info['HeadPosAnglesYPR'][1]),
+                        'roll': float(eye_info['HeadPosAnglesYPR'][2]),
                         'zone_horizontal': zones['horizontal'],
                         'zone_vertical': zones['vertical'],
                         'on_screen': zones['on_screen'],
@@ -150,16 +178,16 @@ class InterviewVideoAnalyzer:
                     row = {
                         'frame_number': frame_count,
                         'timestamp': timestamp,
-                        'gaze_x': gaze_vector[0],
-                        'gaze_y': gaze_vector[1],
-                        'gaze_z': gaze_vector[2],
+                        'gaze_x': float(gaze_vector[0]),
+                        'gaze_y': float(gaze_vector[1]),
+                        'gaze_z': float(gaze_vector[2]),
                         'screen_x_mm': np.nan,
                         'screen_y_mm': np.nan,
                         'screen_x_px': np.nan,
                         'screen_y_px': np.nan,
-                        'yaw': eye_info['HeadPosAnglesYPR'][0],
-                        'pitch': eye_info['HeadPosAnglesYPR'][1],
-                        'roll': eye_info['HeadPosAnglesYPR'][2],
+                        'yaw': float(eye_info['HeadPosAnglesYPR'][0]),
+                        'pitch': float(eye_info['HeadPosAnglesYPR'][1]),
+                        'roll': float(eye_info['HeadPosAnglesYPR'][2]),
                         'zone_horizontal': 'unknown',
                         'zone_vertical': 'unknown',
                         'on_screen': False,
@@ -206,7 +234,7 @@ class InterviewVideoAnalyzer:
         # Save report
         report_path = output_dir / f"{output_name}_analysis_report.json"
         with open(report_path, 'w') as f:
-            json.dump(analysis_report, f, indent=2)
+            json.dump(self._to_json_serializable(analysis_report), f, indent=2)
         
         # Generate visualizations
         self._generate_visualizations(df, output_dir, output_name, screen_info)
@@ -217,13 +245,38 @@ class InterviewVideoAnalyzer:
         
         return analysis_report
     
+    def _to_json_serializable(self, obj):
+        """Convert numpy/pandas types to JSON-serializable types"""
+        if pd.isna(obj):
+            return None
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, dict):
+            return {str(k): self._to_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._to_json_serializable(item) for item in obj]
+        elif isinstance(obj, pd.Series):
+            return self._to_json_serializable(obj.to_dict())
+        return obj
+    
     def _gaze_to_screen_coords(self, gaze_vector, homtrans):
         """
         Convert gaze vector to screen coordinates using calibration
         """
         # Use the same method as in HomTransform._getGazeOnScreen
         FSgaze, Sgaze, Sgaze2 = homtrans._getGazeOnScreen(gaze_vector)
-        return Sgaze[:2]  # Return x, y coordinates in mm
+        # Ensure we return scalar values, not arrays
+        if isinstance(Sgaze, np.ndarray) and Sgaze.size > 2:
+            # If Sgaze has more than 2 elements, take first 2
+            return [float(Sgaze.flat[0]), float(Sgaze.flat[1])]
+        else:
+            return [float(Sgaze[0]), float(Sgaze[1])]
     
     def _mm_to_pixels(self, coords_mm, screen_info):
         """
@@ -232,10 +285,10 @@ class InterviewVideoAnalyzer:
         x_mm, y_mm = coords_mm
         
         # Convert to pixels based on screen dimensions
-        x_px = (x_mm / screen_info['screen_width_mm']) * screen_info['screen_width_px']
-        y_px = (y_mm / screen_info['screen_height_mm']) * screen_info['screen_height_px']
+        x_px = float(x_mm / screen_info['screen_width_mm']) * screen_info['screen_width_px']
+        y_px = float(y_mm / screen_info['screen_height_mm']) * screen_info['screen_height_px']
         
-        return np.array([x_px, y_px])
+        return [x_px, y_px]
     
     def _classify_gaze_zones(self, coords_px, screen_info):
         """

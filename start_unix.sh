@@ -4,8 +4,7 @@ source venv/bin/activate
 echo "Virtual environment activated"
 echo ""
 echo "Available commands:"
-echo "  python interview_calibration_system.py - Setup candidate calibration"
-echo "  python interview_video_analyzer.py - Analyze interview videos"  
-echo "  python cheating_detection_system.py - Detect cheating behavior"
+echo "  python scripts/interview/calibration.py - Setup candidate calibration"
+echo "  python scripts/interview/analyzer.py - Analyze interview videos"  
 echo ""
 exec bash

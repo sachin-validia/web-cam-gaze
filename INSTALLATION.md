@@ -8,7 +8,7 @@ The installation script will automatically download and install Python 3.8+ if n
 
 ```bash
 # This works on any platform and handles Python installation
-python install_cross_platform.py
+python setup/install.py
 ```
 
 **What it does:**
@@ -33,7 +33,7 @@ python install_cross_platform.py
 #### Mac (Intel & Apple Silicon)
 - Download appropriate .pkg installer
 - Install using system installer (requires admin password)
-- Supports both Intel and M1/M2 Macs
+- Supports both Intel and M1/M2/M3 Macs
 
 #### Linux/WSL2
 - Try package manager installation first:
@@ -81,19 +81,19 @@ sudo pacman -S python
 ### Step 1: Download/Clone Repository
 ```bash
 git clone <repository-url>
-cd WebCamGazeEstimation
+cd web-cam-gaze
 ```
 
 ### Step 2: Run Installer
 ```bash
 # Automatic installation (handles everything)
-python install_cross_platform.py
+python setup/install.py
 ```
 
 ### Step 3: Test Installation
 ```bash
 # Test everything is working
-python test_cross_platform.py
+python -c "from utils.platform_utils import get_platform_manager; pm = get_platform_manager(); print(f'Platform: {pm.system}, Device: {pm.get_model_device()}')"
 ```
 
 ### Step 4: Start Using
@@ -123,10 +123,10 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # 4. Install requirements
-pip install -r requirements_cross_platform.txt
+pip install -r setup/requirements_cross_platform.txt
 
 # 5. Test installation
-python test_cross_platform.py
+python -c "from utils.platform_utils import get_platform_manager; pm = get_platform_manager(); print('Installation test passed')"
 ```
 
 ## 🎯 Platform-Specific Notes
@@ -143,7 +143,7 @@ python test_cross_platform.py
 - **Camera**: Uses AVFoundation for optimal performance
 - **GPU**: CPU optimization (CUDA if available)
 
-#### Apple Silicon (M1/M2)
+#### Apple Silicon (M1/M2/M3)
 - **Python Installation**: ARM64-native installer
 - **Camera**: Native ARM64 camera support
 - **GPU**: Metal Performance Shaders (MPS) acceleration
@@ -168,13 +168,13 @@ python test_cross_platform.py
 #### "Permission Denied" on Windows
 ```bash
 # Run as regular user (no admin needed)
-python install_cross_platform.py
+python setup/install.py
 ```
 
 #### "Command not found: python" on Mac/Linux
 ```bash
 # Try with python3
-python3 install_cross_platform.py
+python3 setup/install.py
 
 # Or install Python first
 brew install python@3.8  # Mac
@@ -193,13 +193,16 @@ ls /dev/video*
 
 ```bash
 # Test platform detection
-python -c "from platform_utils import get_platform_manager; pm = get_platform_manager(); print(f'Platform: {pm.system}, Device: {pm.get_model_device()}')"
+python -c "from utils.platform_utils import get_platform_manager; pm = get_platform_manager(); print(f'Platform: {pm.system}, Device: {pm.get_model_device()}')"
 
 # Test camera backend
 python -c "import cv2; print(f'OpenCV: {cv2.__version__}')"
 
 # Test screen detection
 python -c "import screeninfo; print(f'Monitors: {len(screeninfo.get_monitors())}')"
+
+# Test PyTorch
+python -c "import torch; print(f'PyTorch: {torch.__version__}, Device: {torch.device(\"mps\" if torch.backends.mps.is_available() else \"cuda\" if torch.cuda.is_available() else \"cpu\")}')"
 ```
 
 ### Common Issues
@@ -207,6 +210,11 @@ python -c "import screeninfo; print(f'Monitors: {len(screeninfo.get_monitors())}
 #### Issue: "ModuleNotFoundError: No module named 'cv2'"
 **Solution:**
 ```bash
+# Activate virtual environment first
+source venv/bin/activate  # Mac/Linux
+# or
+venv\Scripts\activate     # Windows
+
 # Reinstall OpenCV
 pip uninstall opencv-python
 pip install opencv-python
@@ -216,7 +224,7 @@ pip install opencv-python
 **Solution:**
 ```bash
 # Platform-specific PyTorch installation
-python install_cross_platform.py  # Will fix this automatically
+python setup/install.py  # Will fix this automatically
 ```
 
 #### Issue: Camera not detected
@@ -224,6 +232,14 @@ python install_cross_platform.py  # Will fix this automatically
 - **Windows**: Check Privacy Settings → Camera → Allow apps to access camera
 - **Mac**: System Preferences → Security & Privacy → Camera
 - **Linux**: Check permissions: `sudo usermod -a -G video $USER`
+
+#### Issue: "ModuleNotFoundError: No module named 'utils.platform_utils'"
+**Solution:**
+```bash
+# Run from project root directory
+cd web-cam-gaze
+python scripts/interview/calibration.py
+```
 
 ## 📊 Installation Verification
 
@@ -244,31 +260,49 @@ After installation, you should see:
 
 ```bash
 # 1. Setup candidate calibration
-python interview_calibration_system.py
+python scripts/interview/calibration.py
 
 # 2. Analyze interview videos
-python interview_video_analyzer.py
+python scripts/interview/analyzer.py
 
-# 3. Detect cheating behavior
-python cheating_detection_system.py
+# 3. Run main gaze estimation (alternative)
+python src/main.py
+
+# 4. Run PyTorch Lightning version (alternative)
+python src/main_pl.py
 ```
 
 ## 📁 File Structure After Installation
 
 ```
-WebCamGazeEstimation/
-├── python38/                    # Custom Python (if installed)
-├── python_downloads/            # Downloaded installers
-├── venv/                        # Virtual environment
-├── platform_utils.py           # Cross-platform support
-├── install_cross_platform.py   # Main installer
-├── test_cross_platform.py      # Installation tester
-├── start_windows.bat           # Windows launcher
-├── start_unix.sh               # Mac/Linux launcher
-└── results/                    # Output directories
+web-cam-gaze/
+├── python38/                         # Custom Python (if installed)
+├── python_downloads/                 # Downloaded installers
+├── venv/                            # Virtual environment
+├── setup/                           # Installation files
+│   ├── install.py                   # Main installer
+│   ├── requirements_cross_platform.txt
+├── scripts/                         # Main executable scripts
+│   └── interview/
+│       ├── calibration.py          # Interview calibration system
+│       └── analyzer.py             # Interview video analyzer
+├── src/                            # Source code
+│   ├── main.py                     # Main gaze estimation
+│   ├── main_pl.py                  # PyTorch Lightning version
+│   ├── plgaze/                     # PL-GAZE model implementation
+│   ├── gaze_tracking/              # Gaze tracking utilities
+│   └── utilities/                  # General utilities
+├── utils/                          # Platform utilities
+│   └── platform_utils.py          # Cross-platform support
+├── config/                         # Configuration files
+│   └── paths.py                    # Centralized path management
+├── start_windows.bat               # Windows launcher
+├── start_unix.sh                   # Mac/Linux launcher
+├── camera_data/                    # Camera calibration data
+└── results/                        # Output directories
     ├── interview_calibrations/
     ├── interview_analysis/
-    └── cheating_analysis/
+    └── video_analysis/
 ```
 
 ## 🔄 Updating Installation
@@ -280,15 +314,33 @@ To update or reinstall:
 rm -rf venv python38 python_downloads
 
 # Reinstall
-python install_cross_platform.py
+python setup/install.py
 ```
 
 ## 💡 Tips
 
-1. **First Time**: Always run `test_cross_platform.py` after installation
+1. **First Time**: Always test platform detection after installation
 2. **Camera Issues**: Test camera permissions before calibration
 3. **Performance**: Mac Silicon and CUDA GPUs get automatic acceleration
 4. **WSL2 Users**: Consider using Windows for camera access
 5. **Offline Use**: Installers are cached in `python_downloads/` for reuse
+6. **Virtual Environment**: Always activate `venv` before running scripts
+7. **Project Root**: Run all commands from the `web-cam-gaze/` directory
+
+## 🎯 Available Scripts
+
+### Interview System
+- `scripts/interview/calibration.py` - Setup candidate calibration
+- `scripts/interview/analyzer.py` - Analyze interview videos
+
+### Core Gaze Estimation
+- `src/main.py` - Main gaze estimation system
+- `src/main_pl.py` - PyTorch Lightning based system
+
+### Camera Utilities
+- `camera_data/main_camera_calibration.py` - Camera calibration
+
+### Platform Testing
+- `utils/platform_utils.py` - Platform detection and optimization
 
 The installation system is designed to "just work" on any platform with minimal user intervention! 🎉

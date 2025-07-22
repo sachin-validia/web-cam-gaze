@@ -372,17 +372,29 @@ class CrossPlatformInstaller:
         except subprocess.CalledProcessError as e:
             print(f"⚠️ Warning: Could not upgrade pip: {e}")
         
-        # Install requirements
-        req_file = "requirements_cross_platform.txt"
-        if not pathlib.Path(req_file).exists():
-            req_file = "requirements_pl_gaze.txt"
+        # Install requirements - check setup directory
+        req_files = [
+            "setup/requirements_cross_platform.txt",
+            "setup/requirements_pl_gaze.txt",
+            "setup/requirements.txt"
+        ]
         
-        try:
-            subprocess.run([pip_cmd, 'install', '-r', req_file], check=True)
-            print(f"✅ Requirements installed from {req_file}")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to install requirements: {e}")
+        req_file = None
+        for rf in req_files:
+            if pathlib.Path(rf).exists():
+                req_file = rf
+                break
+        
+        if req_file:
+            try:
+                subprocess.run([pip_cmd, 'install', '-r', req_file], check=True)
+                print(f"✅ Requirements installed from {req_file}")
+                return True
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Failed to install requirements: {e}")
+                return False
+        else:
+            print("❌ No requirements file found")
             return False
     
     def install_platform_specific_packages(self):
@@ -463,13 +475,16 @@ class CrossPlatformInstaller:
         python_cmd = self.get_python_executable()
         
         test_script = '''
+import sys
+sys.path.append(".")
+
 import cv2
 import numpy as np
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 import screeninfo
-from platform_utils import get_platform_manager
+from utils.platform_utils import get_platform_manager
 
 pm = get_platform_manager()
 print(f"Platform manager initialized: {pm.system}")
@@ -505,9 +520,8 @@ call venv\\Scripts\\activate
 echo Virtual environment activated
 echo.
 echo Available commands:
-echo   python interview_calibration_system.py - Setup candidate calibration
-echo   python interview_video_analyzer.py - Analyze interview videos
-echo   python cheating_detection_system.py - Detect cheating behavior
+echo   python scripts/interview/calibration.py - Setup interview calibration
+echo   python scripts/interview/analyzer.py - Analyze interview videos
 echo.
 cmd /k
 '''
@@ -523,9 +537,8 @@ source venv/bin/activate
 echo "Virtual environment activated"
 echo ""
 echo "Available commands:"
-echo "  python interview_calibration_system.py - Setup candidate calibration"
-echo "  python interview_video_analyzer.py - Analyze interview videos"  
-echo "  python cheating_detection_system.py - Detect cheating behavior"
+echo "  python scripts/interview/calibration.py - Setup interview calibration"
+echo "  python scripts/interview/analyzer.py - Analyze interview videos"
 echo ""
 exec bash
 '''
@@ -550,18 +563,17 @@ exec bash
             print("   1. Double-click 'start_windows.bat'")
             print("   OR")
             print(f"   1. Run: {activation_cmd}")
-            print("   2. Run: python interview_calibration_system.py")
+            print("   2. Run: python scripts/interview/calibration.py")
         else:
             print("🚀 To get started on Mac/Linux:")
             print("   1. Run: ./start_unix.sh")
             print("   OR")
             print(f"   1. Run: {activation_cmd}")
-            print("   2. Run: python interview_calibration_system.py")
+            print("   2. Run: python scripts/interview/calibration.py")
         
         print("\n📚 Workflow:")
-        print("   1. Setup candidate: python interview_calibration_system.py")
-        print("   2. Analyze video: python interview_video_analyzer.py")
-        print("   3. Detect cheating: python cheating_detection_system.py")
+        print("   1. Setup calibration: python scripts/interview/calibration.py")
+        print("   2. Analyze interview: python scripts/interview/analyzer.py")
         
         if self.is_wsl:
             print("\n⚠️  WSL2 Notes:")
@@ -582,7 +594,6 @@ exec bash
         print("\n📁 Results will be saved to:")
         print("   • results/interview_calibrations/")
         print("   • results/interview_analysis/")
-        print("   • results/cheating_analysis/")
     
     def run_installation(self):
         """Run the complete installation process"""
