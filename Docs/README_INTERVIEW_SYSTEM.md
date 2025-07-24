@@ -233,10 +233,6 @@ pip install opencv-python pandas numpy matplotlib seaborn scipy scikit-learn
 2. Use calibration data to analyze previously recorded videos
 3. Generate cheating detection reports
 
-### Scenario 3: Batch Processing
-1. Collect calibrations from multiple candidates
-2. Process multiple interview videos
-3. Generate comparative analysis reports
 
 ## 🎯 Key Advantages
 
@@ -264,7 +260,3 @@ pip install opencv-python pandas numpy matplotlib seaborn scipy scikit-learn
 3. **Manual Review**: High-risk cases should always be manually reviewed
 4. **Privacy Compliance**: Ensure compliance with privacy regulations
 5. **False Positives**: System may flag nervous behavior - context matters
-
-## 📞 Support
-
-For technical issues or questions about the interview gaze tracking system, please refer to the individual Python files for detailed implementation notes.
