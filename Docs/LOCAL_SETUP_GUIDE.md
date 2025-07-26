@@ -28,7 +28,7 @@ This guide provides comprehensive instructions for setting up the complete web-c
 
 ### 1. Clone Repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/sachin-validia/web-cam-gaze
 cd web-cam-gaze
 ```
 
@@ -53,8 +53,8 @@ source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 
 # Start backend
-cd web-calibration/backend
-python app.py
+cd web-calibration/
+python -m backend.app
 
 # Start frontend (in new terminal)
 cd web-calibration/frontend
@@ -86,6 +86,8 @@ pip install -r setup/requirements_cross_platform.txt
 
 # Install web backend dependencies
 pip install -r web-calibration/backend/requirements.txt
+
+Contact sachin@validia.ai if any issues in dependency installation 
 ```
 
 ### Step 2: Database Setup
@@ -118,8 +120,8 @@ mysql -u root -p
 CREATE DATABASE calibration_db;
 
 -- Create user (recommended)
-CREATE USER 'calibration_user'@'localhost' IDENTIFIED BY 'your_password_here';
-GRANT ALL PRIVILEGES ON calibration_db.* TO 'calibration_user'@'localhost';
+CREATE USER 'validia'@'localhost' IDENTIFIED BY 'your_password_here';
+GRANT ALL PRIVILEGES ON calibration_db.* TO 'validia'@'localhost';
 FLUSH PRIVILEGES;
 
 -- Import schema
@@ -136,7 +138,7 @@ Create `.env` file in `web-calibration/backend/`:
 # Database Configuration
 DB_HOST=localhost
 DB_PORT=3306
-DB_USER=calibration_user
+DB_USER=validia
 DB_PASSWORD=your_password_here
 DB_NAME=calibration_db
 
@@ -146,7 +148,9 @@ PORT=8000
 DEBUG=true
 
 # Security
-SECRET_KEY=your-secret-key-change-in-production
+# generate a jwt key using 
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY=your-secret-key-change-in-production  
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
@@ -185,8 +189,8 @@ npm run preview
 
 #### 5.1 Test Backend
 ```bash
-cd web-calibration/backend
-python app.py
+cd web-calibration/
+python -m backend.app
 ```
 
 Visit: http://localhost:8000 (should show API status)
@@ -231,9 +235,9 @@ print('Analyzer initialized successfully!')
 #### 1.1 Start System
 ```bash
 # Terminal 1: Backend
-cd web-calibration/backend
+cd web-calibration/
 source ../../venv/bin/activate
-python app.py
+python -m backend.app
 
 # Terminal 2: Frontend
 cd web-calibration/frontend
@@ -256,6 +260,17 @@ npm run dev
 source venv/bin/activate
 
 # Run analyzer
+# for now the main script is to be fixed and under process but the one to test with both web and desktop calibration is working 
+
+## alt script in the root directory
+python calibration_comparison_test.py
+
+## for the above you would also need to perform desktop-calibration using the option 1 in the menu first,
+## then once we have the calibration from both the desktop-calibration and web. 
+## You can then RUN OPTION 3 in the menu option to use analyzer.py on both desktop and web verison of calibration 
+
+
+## main script 
 python scripts/interview/analyzer.py
 
 # Follow prompts:
