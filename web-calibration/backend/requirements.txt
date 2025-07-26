@@ -1,0 +1,48 @@
+# Core web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Database
+mysql-connector-python==8.0.33  # Downgraded to maintain compatibility with protobuf <4 required by mediapipe
+SQLAlchemy==2.0.23
+
+# Environment and configuration
+python-dotenv==1.0.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# CORS and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==41.0.7
+
+# Image processing and ML
+opencv-python==4.8.1.78
+numpy==1.24.3
+Pillow==10.1.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# PLGaze dependencies
+timm>=0.4.12
+omegaconf>=2.1.1
+face-alignment>=1.3.5
+# Note: mediapipe and dlib should be used from main venv
+# Explicit protobuf pin avoids dependency solver conflicts between mediapipe (<4) and mysql-connector-python (>=3,<4)
+protobuf==3.20.3
+mediapipe==0.10.7  # Specific version required for PLGaze compatibility
+# dlib>=20.0.0
+
+# Utilities
+aiofiles==23.2.1
+python-dateutil==2.8.2
+httpx==0.25.2
+
+# For NPZ file handling
+scipy==1.11.4
+
+# Logging
+structlog==23.2.0
+openvino-dev
+dlib==20.0.0

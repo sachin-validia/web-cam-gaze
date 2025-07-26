@@ -1,7 +1,0 @@
-pandas
-matplotlib
-opencv-python
-scipy
-screeninfo
-keyboard
-scikit-image

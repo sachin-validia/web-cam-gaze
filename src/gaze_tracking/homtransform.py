@@ -129,6 +129,9 @@ class HomTransform:
         return
 
     def calibrate(self, model, cap, sfm=False):
+        print(f"DEBUG: Starting calibration with screen size: {self.width}x{self.height}")
+        print(f"DEBUG: Screen size in mm: {self.width_mm}x{self.height_mm}")
+        
         frame = gcv.getWhiteFrame(self.width, self.height)
         if cap != None:
             out_video,_,_ = gcv.get_out_video(cap, os.path.join(self.dir, "results"))
@@ -137,8 +140,56 @@ class HomTransform:
         target = gcv.Targets(self.width, self.height)
         frame_prev = None
         WTransG1 = np.zeros((4,4))
+        
+        # Display countdown with proper delays for fullscreen loading
+        print("🖥️  Setting up fullscreen calibration window...")
+        
+        # Show countdown with visual feedback
+        for countdown in range(5, 0, -1):
+            instruction_frame = gcv.getWhiteFrame(self.width, self.height)
+            
+            # Title
+            cv2.putText(instruction_frame, "CALIBRATION STARTING", (self.width//2-300, self.height//2-150), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3)
+            
+            # Instructions
+            cv2.putText(instruction_frame, "Look at the RED DOTS that will appear", (self.width//2-400, self.height//2-50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 2)
+            cv2.putText(instruction_frame, "Keep your head still, follow with EYES ONLY", (self.width//2-450, self.height//2), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 2)
+            
+            # Large countdown number
+            cv2.putText(instruction_frame, str(countdown), (self.width//2-50, self.height//2+150), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 6, (255, 0, 0), 8)
+            cv2.putText(instruction_frame, "seconds until dots appear", (self.width//2-350, self.height//2+220), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 0, 0), 3)
+            
+            # Display frame and wait
+            gcv.display_window(instruction_frame)
+            cv2.waitKey(100)  # Process window events
+            time.sleep(1)     # 1 second per countdown
+            
+            print(f"⏳ Calibration starts in {countdown} seconds...")
+        
+        # Final ready message
+        ready_frame = gcv.getWhiteFrame(self.width, self.height)
+        cv2.putText(ready_frame, "GET READY!", (self.width//2-200, self.height//2-50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 255, 0), 5)
+        cv2.putText(ready_frame, "RED DOTS STARTING NOW", (self.width//2-350, self.height//2+50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 4)
+        
+        gcv.display_window(ready_frame)
+        cv2.waitKey(500)  # Brief pause for final message
+        
+        # NOW start the calibration timer after fullscreen is ready
         target.tstart = time.time()
+        print("✅ Starting calibration sequence - RED DOTS appearing now!")
+        
+        iteration_count = 0
         while (cap.isOpened()):
+            iteration_count += 1
+            print(f"DEBUG: Calibration iteration {iteration_count}")
+            
             idx, SetPos = target.getTargetCalibration()
             if idx == None:
                 break
@@ -175,11 +226,38 @@ class HomTransform:
             # frame_cam = cv2.undistort(frame_cam, self.camera_matrix, self.dist_coeffs)
             eye_info = model.get_gaze(frame=frame_cam, imshow=False)
             if eye_info is None:
+                print("DEBUG: eye_info is None - no face detected")
                 raise Exception("No eye info. Eye tracking failed.")
             
+            # Debug: check eye_info contents
+            print(f"DEBUG: eye_info keys: {list(eye_info.keys())}")
+            for key, value in eye_info.items():
+                print(f"DEBUG: {key}: {value} (type: {type(value)})")
+            
             arr = np.array([])
-            for i in pd.Series(eye_info).values:
-                arr = np.hstack((arr,i))
+            for key, value in eye_info.items():
+                if value is None:
+                    print(f"DEBUG: {key} is None, skipping or replacing with zeros")
+                    # Replace None with appropriate zeros based on expected shape
+                    if key == 'gaze':
+                        value = np.array([0.0, 0.0, 0.0])
+                    elif key == 'EyeRLCenterPos':
+                        value = np.array([0.0, 0.0, 0.0, 0.0])
+                    elif key == 'HeadPosAnglesYPR':
+                        value = np.array([0.0, 0.0, 0.0])
+                    elif key == 'HeadPosInFrame':
+                        value = np.array([0.0, 0.0])
+                    elif key == 'EyeState':
+                        value = np.array([0.0, 0.0])
+                    else:
+                        value = np.array([0.0, 0.0])
+                
+                try:
+                    arr = np.hstack((arr, value.flatten()))
+                except Exception as e:
+                    print(f"DEBUG: Error processing {key}: {e}")
+                    print(f"DEBUG: Value shape: {value.shape if hasattr(value, 'shape') else 'no shape'}")
+                    raise
             timestamp = time.time_ns()/1000000000
             SetPos = self._pixel2mm(SetPos)
             self.df = pd.concat([ self.df, pd.DataFrame([np.hstack((timestamp, idx, arr, SetPos, 0, WTransG1.flatten()))]) ])
