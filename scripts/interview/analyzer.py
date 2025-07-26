@@ -122,12 +122,31 @@ class InterviewVideoAnalyzer:
         
         # Load complete calibration state if available
         if calib_state and 'StG' in calib_state and calib_state['StG'] is not None:
-            homtrans.StG = calib_state['StG']
-            if 'SetValues' in calib_state and calib_state['SetValues'] is not None:
-                homtrans.SetValues = calib_state['SetValues']
+            # Validate StG structure
+            if isinstance(calib_state['StG'], (list, np.ndarray)) and len(calib_state['StG']) > 0:
+                # Check if StG contains valid data (not just zeros)
+                is_valid = False
+                for stg in calib_state['StG']:
+                    if isinstance(stg, np.ndarray) and not np.allclose(stg, 0):
+                        is_valid = True
+                        break
+                
+                if is_valid:
+                    homtrans.StG = calib_state['StG']
+                    if 'SetValues' in calib_state and calib_state['SetValues'] is not None:
+                        homtrans.SetValues = calib_state['SetValues']
+                    print(f"✅ Loaded complete calibration state for {candidate_id}")
+                else:
+                    print(f"⚠️ StG contains only zeros for {candidate_id}, using fallback")
+                    homtrans.StG = []
+                    homtrans.SetValues = homtrans.CalTargetMM()
+            else:
+                print(f"⚠️ Invalid StG structure for {candidate_id}, using fallback")
+                homtrans.StG = []
+                homtrans.SetValues = homtrans.CalTargetMM()
         else:
             # Fallback: Initialize with default calibration points
-            print("⚠️ Using fallback calibration state (may affect accuracy)")
+            print(f"⚠️ Missing calibration state for {candidate_id}, using fallback")
             homtrans.StG = []
             homtrans.SetValues = homtrans.CalTargetMM()
         

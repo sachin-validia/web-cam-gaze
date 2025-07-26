@@ -360,17 +360,28 @@ class InterviewCalibrationSystem:
         """
         Load existing calibration data for a candidate
         """
+        # Try structured directory first, then fallback to flat structure
+        candidate_dir = self.calibration_dir / candidate_id
+        
         # Load screen info
-        info_path = self.calibration_dir / f"{candidate_id}_screen_info.json"
+        info_path = candidate_dir / f"{candidate_id}_screen_info.json"
         if not info_path.exists():
-            raise FileNotFoundError(f"No screen info found for candidate {candidate_id}")
+            # Fallback to flat structure
+            info_path = self.calibration_dir / f"{candidate_id}_screen_info.json"
+            if not info_path.exists():
+                raise FileNotFoundError(f"No screen info found for candidate {candidate_id}")
         
         with open(info_path, 'r') as f:
             screen_info = json.load(f)
         
-        # Load transform matrix (try new format first, then old)
-        transform_path_npz = self.calibration_dir / f"{candidate_id}_transform_matrix.npz"
-        transform_path_npy = self.calibration_dir / f"{candidate_id}_transform_matrix.npy"
+        # Load transform matrix (try structured directory first)
+        transform_path_npz = candidate_dir / f"{candidate_id}_transform_matrix.npz"
+        transform_path_npy = candidate_dir / f"{candidate_id}_transform_matrix.npy"
+        
+        # Fallback to flat structure
+        if not transform_path_npz.exists() and not transform_path_npy.exists():
+            transform_path_npz = self.calibration_dir / f"{candidate_id}_transform_matrix.npz"
+            transform_path_npy = self.calibration_dir / f"{candidate_id}_transform_matrix.npy"
         
         calib_state = {}
         if transform_path_npz.exists():
@@ -391,8 +402,11 @@ class InterviewCalibrationSystem:
         else:
             raise FileNotFoundError(f"No calibration matrix found for candidate {candidate_id}")
         
-        # Load calibration data
-        calib_data_path = self.calibration_dir / f"{candidate_id}_calibration.csv"
+        # Load calibration data (try structured directory first)
+        calib_data_path = candidate_dir / f"{candidate_id}_calibration.csv"
+        if not calib_data_path.exists():
+            # Fallback to flat structure
+            calib_data_path = self.calibration_dir / f"{candidate_id}_calibration.csv"
         calibration_data = None
         if calib_data_path.exists():
             calibration_data = pd.read_csv(calib_data_path)

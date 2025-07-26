@@ -84,7 +84,8 @@ interview_calibration/
 claude-agents/
 Docs/coding-style.md
 @web-calibration/Docs/PHASE0_INTEGRATION_PLAN.md
-
+Docs/CLAUDE.md
+old_tests/
 
 # Model files (if too large for git)
 # Uncomment these if models are too large
@@ -111,4 +112,3 @@ tests/*.log
 
 #plan markdown
 RECOMMENDED_STRUCTURE.md
-

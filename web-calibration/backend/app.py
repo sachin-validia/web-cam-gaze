@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
         print(f"Starting server on {settings.HOST}:{settings.PORT}")
         uvicorn.run(
-            "app:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG
+            "backend.app:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG
         )
     except Exception as e:
         import traceback

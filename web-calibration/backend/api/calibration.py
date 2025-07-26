@@ -526,6 +526,24 @@ async def complete_calibration(
             request.candidate_id, calibration_csv, transform_result["transform_matrix"]
         )
 
+        # Save files to disk for analyzer.py compatibility
+        from pathlib import Path
+        candidate_dir = Path(f"/Users/sachinadlakha/Desktop/Validia/web-cam-gaze/results/interview_calibrations/{request.candidate_id}")
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        file_generator_with_output = FileGenerator(output_dir=candidate_dir)
+        
+        try:
+            file_paths = file_generator_with_output.save_files(
+                request.candidate_id,
+                screen_info_json,
+                calibration_csv,
+                transform_matrix_bytes,
+            )
+            logger.info("Calibration files saved to disk", file_paths=list(file_paths.keys()))
+        except Exception as e:
+            logger.error("Failed to save calibration files to disk", error=str(e))
+            # Don't fail the API call for file save errors - data is still in DB
+
         # Update session status
         storage.update_session_status(request.session_id, "completed")
 

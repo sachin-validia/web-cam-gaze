@@ -389,6 +389,17 @@ class CrossPlatformInstaller:
             try:
                 subprocess.run([pip_cmd, 'install', '-r', req_file], check=True)
                 print(f"✅ Requirements installed from {req_file}")
+                
+                # Install web-calibration backend requirements
+                backend_req_file = "web-calibration/backend/requirements.txt"
+                if pathlib.Path(backend_req_file).exists():
+                    print("📦 Installing web-calibration backend requirements...")
+                    try:
+                        subprocess.run([pip_cmd, 'install', '-r', backend_req_file], check=True)
+                        print("✅ Web-calibration backend requirements installed")
+                    except subprocess.CalledProcessError as e:
+                        print(f"⚠️ Warning: Failed to install some backend requirements: {e}")
+                
                 return True
             except subprocess.CalledProcessError as e:
                 print(f"❌ Failed to install requirements: {e}")
@@ -468,6 +479,199 @@ class CrossPlatformInstaller:
         
         return True
     
+    def check_mysql_installed(self):
+        """Check if MySQL is installed and accessible"""
+        mysql_commands = ['mysql', 'mysql.exe'] if self.system == 'windows' else ['mysql']
+        
+        for cmd in mysql_commands:
+            try:
+                result = subprocess.run([cmd, '--version'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    print(f"✅ MySQL found: {result.stdout.strip()}")
+                    return True
+            except FileNotFoundError:
+                continue
+        
+        return False
+    
+    def install_mysql(self):
+        """Install MySQL based on platform"""
+        print("🗄️ Installing MySQL...")
+        
+        if self.system == 'darwin':  # Mac
+            # Check if Homebrew is installed
+            try:
+                subprocess.run(['brew', '--version'], capture_output=True, check=True)
+                print("🍺 Installing MySQL via Homebrew...")
+                subprocess.run(['brew', 'install', 'mysql'], check=True)
+                subprocess.run(['brew', 'services', 'start', 'mysql'], check=True)
+                print("✅ MySQL installed and started")
+                return True
+            except:
+                print("❌ Homebrew not found. Please install MySQL manually:")
+                print("   Visit: https://dev.mysql.com/downloads/mysql/")
+                return False
+        
+        elif self.system == 'windows':
+            print("⚠️ Please install MySQL manually on Windows:")
+            print("   1. Download MySQL Community Server from:")
+            print("      https://dev.mysql.com/downloads/mysql/")
+            print("   2. Run the installer and follow the setup wizard")
+            print("   3. Remember your root password!")
+            return False
+        
+        else:  # Linux/WSL
+            print("🐧 Installing MySQL via package manager...")
+            try:
+                subprocess.run(['sudo', 'apt', 'update'], check=True)
+                subprocess.run(['sudo', 'apt', 'install', '-y', 'mysql-server'], check=True)
+                subprocess.run(['sudo', 'systemctl', 'start', 'mysql'], check=True)
+                print("✅ MySQL installed and started")
+                return True
+            except:
+                print("❌ Failed to install MySQL. Please install manually:")
+                print("   sudo apt update && sudo apt install mysql-server")
+                return False
+    
+    def setup_database(self):
+        """Setup MySQL database for web-calibration"""
+        print("🗄️ Setting up calibration database...")
+        
+        # Check if MySQL is installed
+        if not self.check_mysql_installed():
+            if not self.install_mysql():
+                print("⚠️ MySQL not installed. Please install it manually and re-run setup.")
+                return False
+        
+        # Create .env file if it doesn't exist
+        env_file = pathlib.Path("web-calibration/backend/.env")
+        if not env_file.exists():
+            print("📝 Creating .env configuration file...")
+            env_content = """# Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=calibration_user
+DB_PASSWORD=calibration_password
+DB_NAME=calibration_db
+
+# API Configuration
+SECRET_KEY=your-secret-key-here-change-in-production
+"""
+            env_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(env_file, 'w') as f:
+                f.write(env_content)
+            print(f"✅ Created {env_file}")
+        
+        # Create database setup script
+        db_setup_script = """
+CREATE DATABASE IF NOT EXISTS calibration_db;
+CREATE USER IF NOT EXISTS 'calibration_user'@'localhost' IDENTIFIED BY 'calibration_password';
+GRANT ALL PRIVILEGES ON calibration_db.* TO 'calibration_user'@'localhost';
+FLUSH PRIVILEGES;
+"""
+        
+        setup_sql_file = pathlib.Path("setup_calibration_db.sql")
+        with open(setup_sql_file, 'w') as f:
+            f.write(db_setup_script)
+        
+        print("⚠️ Please run the following command to setup the database:")
+        print(f"   mysql -u root -p < {setup_sql_file}")
+        print("   Then run: mysql -u root -p calibration_db < web-calibration/backend/db/schema.sql")
+        print("\n📝 Database credentials (update .env if needed):")
+        print("   User: calibration_user")
+        print("   Password: calibration_password")
+        print("   Database: calibration_db")
+        
+        return True
+    
+    def check_nodejs_installed(self):
+        """Check if Node.js is installed"""
+        try:
+            result = subprocess.run(['node', '--version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                version = result.stdout.strip()
+                print(f"✅ Node.js found: {version}")
+                
+                # Check npm as well
+                npm_result = subprocess.run(['npm', '--version'], capture_output=True, text=True)
+                if npm_result.returncode == 0:
+                    print(f"✅ npm found: v{npm_result.stdout.strip()}")
+                    return True
+        except FileNotFoundError:
+            pass
+        
+        return False
+    
+    def install_nodejs(self):
+        """Install Node.js based on platform"""
+        print("📦 Installing Node.js...")
+        
+        if self.system == 'darwin':  # Mac
+            try:
+                subprocess.run(['brew', '--version'], capture_output=True, check=True)
+                print("🍺 Installing Node.js via Homebrew...")
+                subprocess.run(['brew', 'install', 'node'], check=True)
+                print("✅ Node.js installed")
+                return True
+            except:
+                print("❌ Homebrew not found. Please install Node.js manually:")
+                print("   Visit: https://nodejs.org/")
+                return False
+        
+        elif self.system == 'windows':
+            print("⚠️ Please install Node.js manually on Windows:")
+            print("   1. Download Node.js from: https://nodejs.org/")
+            print("   2. Run the installer (includes npm)")
+            print("   3. Restart your terminal after installation")
+            return False
+        
+        else:  # Linux/WSL
+            print("🐧 Installing Node.js via NodeSource...")
+            try:
+                # Install Node.js 18.x LTS
+                subprocess.run(['curl', '-fsSL', 'https://deb.nodesource.com/setup_18.x', '|', 'sudo', '-E', 'bash', '-'], shell=True, check=True)
+                subprocess.run(['sudo', 'apt', 'install', '-y', 'nodejs'], check=True)
+                print("✅ Node.js installed")
+                return True
+            except:
+                print("❌ Failed to install Node.js. Please install manually:")
+                print("   Visit: https://nodejs.org/")
+                return False
+    
+    def setup_frontend(self):
+        """Setup web-calibration frontend"""
+        print("🌐 Setting up web-calibration frontend...")
+        
+        # Check if Node.js is installed
+        if not self.check_nodejs_installed():
+            if not self.install_nodejs():
+                print("⚠️ Node.js not installed. Please install it manually and re-run setup.")
+                return False
+        
+        # Navigate to frontend directory and install dependencies
+        frontend_dir = pathlib.Path("web-calibration/frontend")
+        if not frontend_dir.exists():
+            print(f"❌ Frontend directory not found: {frontend_dir}")
+            return False
+        
+        try:
+            print("📦 Installing frontend dependencies...")
+            # Change to frontend directory and run npm install
+            original_dir = os.getcwd()
+            os.chdir(frontend_dir)
+            
+            subprocess.run(['npm', 'install'], check=True)
+            print("✅ Frontend dependencies installed")
+            
+            # Return to original directory
+            os.chdir(original_dir)
+            return True
+            
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to install frontend dependencies: {e}")
+            os.chdir(original_dir)  # Make sure to return to original directory
+            return False
+    
     def test_installation(self):
         """Test if installation is working"""
         print("🧪 Testing installation...")
@@ -486,6 +690,15 @@ import matplotlib.pyplot as plt
 import screeninfo
 from utils.platform_utils import get_platform_manager
 
+# Test web-calibration backend imports
+try:
+    import fastapi
+    import uvicorn
+    import mysql.connector
+    print("✅ Web-calibration backend imports successful")
+except ImportError as e:
+    print(f"⚠️ Web-calibration backend import failed: {e}")
+
 pm = get_platform_manager()
 print(f"Platform manager initialized: {pm.system}")
 print(f"Device: {pm.get_model_device()}")
@@ -497,7 +710,7 @@ try:
 except Exception as e:
     print(f"Monitor detection: {e}")
 
-print("✅ All imports successful!")
+print("✅ All core imports successful!")
 '''
         
         try:
@@ -520,14 +733,42 @@ call venv\\Scripts\\activate
 echo Virtual environment activated
 echo.
 echo Available commands:
+echo   === Core System ===
 echo   python scripts/interview/calibration.py - Setup interview calibration
 echo   python scripts/interview/analyzer.py - Analyze interview videos
+echo.
+echo   === Web Calibration System ===
+echo   cd web-calibration/backend && python app.py - Start web calibration backend
+echo   cd web-calibration/frontend && npm run dev - Start web calibration frontend
+echo.
+echo   === Database Management ===
+echo   mysql -u root -p calibration_db - Access calibration database
 echo.
 cmd /k
 '''
             with open('start_windows.bat', 'w') as f:
                 f.write(script_content)
             print("✅ Created start_windows.bat")
+            
+            # Create web-calibration start scripts
+            backend_script = '''@echo off
+echo Starting Web Calibration Backend...
+cd web-calibration\\backend
+call ..\\..\\venv\\Scripts\\activate
+python app.py
+'''
+            with open('start_backend_windows.bat', 'w') as f:
+                f.write(backend_script)
+            print("✅ Created start_backend_windows.bat")
+            
+            frontend_script = '''@echo off
+echo Starting Web Calibration Frontend...
+cd web-calibration\\frontend
+npm run dev
+'''
+            with open('start_frontend_windows.bat', 'w') as f:
+                f.write(frontend_script)
+            print("✅ Created start_frontend_windows.bat")
         
         else:
             # Unix shell script
@@ -537,8 +778,16 @@ source venv/bin/activate
 echo "Virtual environment activated"
 echo ""
 echo "Available commands:"
+echo "  === Core System ==="
 echo "  python scripts/interview/calibration.py - Setup interview calibration"
 echo "  python scripts/interview/analyzer.py - Analyze interview videos"
+echo ""
+echo "  === Web Calibration System ==="
+echo "  cd web-calibration/backend && python app.py - Start web calibration backend"
+echo "  cd web-calibration/frontend && npm run dev - Start web calibration frontend"
+echo ""
+echo "  === Database Management ==="
+echo "  mysql -u root -p calibration_db - Access calibration database"
 echo ""
 exec bash
 '''
@@ -549,6 +798,28 @@ exec bash
             # Make executable
             os.chmod(script_name, 0o755)
             print(f"✅ Created {script_name}")
+            
+            # Create web-calibration start scripts
+            backend_script = '''#!/bin/bash
+echo "Starting Web Calibration Backend..."
+cd web-calibration/backend
+source ../../venv/bin/activate
+python app.py
+'''
+            with open('start_backend.sh', 'w') as f:
+                f.write(backend_script)
+            os.chmod('start_backend.sh', 0o755)
+            print("✅ Created start_backend.sh")
+            
+            frontend_script = '''#!/bin/bash
+echo "Starting Web Calibration Frontend..."
+cd web-calibration/frontend
+npm run dev
+'''
+            with open('start_frontend.sh', 'w') as f:
+                f.write(frontend_script)
+            os.chmod('start_frontend.sh', 0o755)
+            print("✅ Created start_frontend.sh")
     
     def show_next_steps(self):
         """Show next steps for the user"""
@@ -564,16 +835,36 @@ exec bash
             print("   OR")
             print(f"   1. Run: {activation_cmd}")
             print("   2. Run: python scripts/interview/calibration.py")
+            
+            print("\n🌐 To start Web Calibration System:")
+            print("   Backend: Double-click 'start_backend_windows.bat'")
+            print("   Frontend: Double-click 'start_frontend_windows.bat'")
         else:
             print("🚀 To get started on Mac/Linux:")
             print("   1. Run: ./start_unix.sh")
             print("   OR")
             print(f"   1. Run: {activation_cmd}")
             print("   2. Run: python scripts/interview/calibration.py")
+            
+            print("\n🌐 To start Web Calibration System:")
+            print("   Backend: ./start_backend.sh")
+            print("   Frontend: ./start_frontend.sh")
         
-        print("\n📚 Workflow:")
+        print("\n📚 Workflow Options:")
+        print("   === Option 1: Command Line (Original) ===")
         print("   1. Setup calibration: python scripts/interview/calibration.py")
         print("   2. Analyze interview: python scripts/interview/analyzer.py")
+        
+        print("\n   === Option 2: Web Interface (New) ===")
+        print("   1. Start backend: cd web-calibration/backend && python app.py")
+        print("   2. Start frontend: cd web-calibration/frontend && npm run dev")
+        print("   3. Open browser: http://localhost:3000")
+        
+        print("\n🗄️ Database:")
+        print("   • MySQL database: calibration_db")
+        print("   • User: calibration_user")
+        print("   • Password: calibration_password")
+        print("   • Update credentials in: web-calibration/backend/.env")
         
         if self.is_wsl:
             print("\n⚠️  WSL2 Notes:")
@@ -592,8 +883,14 @@ exec bash
             print(f"   • Python executable: {self.python_cmd}")
         
         print("\n📁 Results will be saved to:")
-        print("   • results/interview_calibrations/")
-        print("   • results/interview_analysis/")
+        print("   • Command line: results/interview_calibrations/")
+        print("   • Web interface: Stored in MySQL database")
+        print("   • Analysis results: results/interview_analysis/")
+        
+        print("\n📖 Documentation:")
+        print("   • Setup guide: Docs/LOCAL_SETUP_GUIDE.md")
+        print("   • Backend API: web-calibration/backend/README.md")
+        print("   • Frontend: web-calibration/frontend/README.md")
     
     def run_installation(self):
         """Run the complete installation process"""
@@ -619,6 +916,16 @@ exec bash
         # Install platform-specific packages
         if not self.install_platform_specific_packages():
             print("⚠️ Warning: Some platform-specific packages failed, but continuing...")
+        
+        # Setup database for web-calibration
+        print("\n🗄️ Database Setup")
+        if not self.setup_database():
+            print("⚠️ Warning: Database setup incomplete, but continuing...")
+        
+        # Setup frontend for web-calibration
+        print("\n🌐 Frontend Setup")
+        if not self.setup_frontend():
+            print("⚠️ Warning: Frontend setup incomplete, but continuing...")
         
         # Test installation
         if not self.test_installation():

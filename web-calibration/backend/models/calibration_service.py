@@ -156,6 +156,9 @@ class CalibrationService:
                     vec = p.get("gaze_vector", [0.5, 0.5, 1.0])  # Default if missing
                     if isinstance(vec, list):
                         vec = np.array(vec)
+                    # Fix Z-axis orientation to match desktop convention
+                    if len(vec) > 2:
+                        vec[2] = -vec[2]  # Invert Z
                     gaze_vecs.append(vec)
 
                 avg_gaze = np.mean(gaze_vecs, axis=0)
@@ -164,39 +167,167 @@ class CalibrationService:
             screen_points = np.array(screen_points)
             gaze_vectors = np.array(gaze_vectors)
 
-            # Fit a simple 2D affine transform (least-squares) that maps
-            # gaze_vectors (x,y) → screen_points (x,y). We solve
-            #   [gx gy 1] · A = [sx sy]
-            # where A is 3×2. We then convert that to a 3×3 homogeneous
-            # matrix with last row [0 0 1].
-
-            src_aug = np.hstack(
-                [gaze_vectors[:, :2], np.ones((gaze_vectors.shape[0], 1))]
+            # Implement HomTransform's calibration algorithm directly (no dependencies)
+            # Convert normalized screen points to mm coordinates
+            width_mm = float(self.screen_info['screen_width_mm'])
+            height_mm = float(self.screen_info['screen_height_mm'])
+            width_px = int(self.screen_info['screen_width_px'])
+            height_px = int(self.screen_info['screen_height_px'])
+            
+            # Define standard calibration positions (must match desktop)
+            calibration_positions = [(0.1, 0.1), (0.9, 0.1), (0.1, 0.9), (0.9, 0.9)]
+            
+            # Sort target groups to ensure consistent ordering
+            sorted_targets = sorted(target_groups.keys())
+            
+            # Map targets to standard positions and create arrays
+            screen_points_mm = []
+            ordered_gaze_vectors = []
+            
+            for std_x, std_y in calibration_positions:
+                # Find closest target to this standard position
+                best_target = None
+                min_dist = float('inf')
+                for target_key in sorted_targets:
+                    dist = np.sqrt((target_key[0] - std_x)**2 + (target_key[1] - std_y)**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_target = target_key
+                
+                if best_target and min_dist < 0.1:  # Within 10% tolerance
+                    # Use the gaze vectors from this target
+                    idx = list(target_groups.keys()).index(best_target)
+                    ordered_gaze_vectors.append(gaze_vectors[idx])
+                    
+                    # Calculate mm position for this standard point
+                    x_mm = std_x * width_mm
+                    y_mm = std_y * height_mm
+                    screen_points_mm.append([x_mm, y_mm, 0])
+                else:
+                    raise ValueError(f"No calibration data found for position ({std_x}, {std_y})")
+            
+            screen_points_mm = np.array(screen_points_mm)
+            gaze_vectors = np.array(ordered_gaze_vectors)
+            
+            # HomTransform's calibration algorithm (extracted from _fitSTransG)
+            from scipy import optimize as opt
+            
+            # Rotation matrix (same as desktop)
+            SRotG = np.array([[-1,0,0],[0,-1,0],[0,0,1]])
+            gaze_3d = gaze_vectors[:,:,np.newaxis]  # Shape: (N, 3, 1)
+            SetVal_3d = screen_points_mm[:,:,np.newaxis]  # Shape: (N, 3, 1)
+            
+            # Optimization function (same as HomTransform)
+            def alignError(x, *const):
+                SRotG, gaze, SetVal = const
+                StG = np.array([[x[0]],[x[1]],[x[2]]])
+                Gz = np.array([[0],[0],[1]])
+                mu = (Gz.T @ (-SRotG.T @ StG))/(Gz.T @ gaze)
+                Sg = SRotG @ (mu*gaze) + StG
+                error = SetVal - Sg
+                return error.flatten()
+            
+            # Initial guess (screen center in mm and camera distance)
+            const = (SRotG, gaze_3d, SetVal_3d)
+            # Use mm coordinates for initial guess to match desktop calibration
+            x0 = np.array([width_mm/2, height_mm/2, 600.0])  # Center in mm, 600mm camera distance
+            
+            # Add bounds to prevent optimization from drifting too far from screen
+            bounds = (
+                [0, 0, 400],  # Lower bounds: x_min=0, y_min=0, z_min=400mm
+                [width_mm, height_mm, 800]  # Upper bounds: screen dimensions, z_max=800mm
             )
-            # Solve for A using least-squares
-            A, *_ = np.linalg.lstsq(src_aug, screen_points, rcond=None)
-            # A is 3×2 → transpose to 2×3 for homogeneous form
-            transform_matrix = np.vstack([A.T, np.array([0, 0, 1])])
-            # Store 3×3 homogeneous transform for later use
-            self.transform = transform_matrix
-
-            # Prepare result
-            result = {
-                "success": True,
-                "transform_matrix": {
-                    "STransG": transform_matrix,  # Main transformation matrix
-                    "StG": np.eye(3),  # Secondary transform (identity for now)
-                    "SetValues": screen_points,  # Calibration target positions
-                },
-                "calibration_stats": {
-                    "total_frames": len(self.calibration_data),
-                    "targets_used": len(target_groups),
-                    "frames_per_target": {
-                        f"{k[0]},{k[1]}": len(v) for k, v in target_groups.items()
+            
+            try:
+                # Solve optimization with bounds to prevent drift
+                res = opt.least_squares(alignError, x0, args=const, bounds=bounds)
+                xopt = res.x
+                logger.info(f"Calibration optimization: optimality={res.optimality}, solution={xopt}")
+                
+                # Validate optimization result
+                if not res.success:
+                    logger.warning(f"Optimization may not have converged: {res.message}")
+                
+                # Build transformation matrix (same as desktop)
+                # Ensure Z is negative (camera behind screen)
+                StG = np.array([[xopt[0]],[xopt[1]],[-abs(xopt[2])]])
+                transform_matrix = np.r_[np.c_[SRotG, StG], np.array([[0,0,0,1]])]
+                
+                # Generate StG for each calibration point (matching desktop calibration)
+                StG_list = []
+                SetValues_3d = []
+                
+                # Calculate scale using global transformation (needed for individual StG)
+                Gz = np.array([[0],[0],[1]])
+                
+                for i in range(len(screen_points_mm)):
+                    # Get gaze vector and target position for this calibration point
+                    gaze_i = gaze_3d[i]
+                    SetVal_i = SetVal_3d[i]
+                    
+                    # Calculate scale for this gaze vector using global StG
+                    # This matches HomTransform._getScale() logic
+                    GTransS = np.linalg.inv(transform_matrix)
+                    GtS = GTransS[:3,3].reshape(3,1)
+                    scaleGaze_i = (Gz.T @ GtS) / (Gz.T @ gaze_i)
+                    
+                    # Calculate mu for this calibration point
+                    mu_i = (Gz.T @ (-SRotG.T @ StG))/(Gz.T @ gaze_i)
+                    
+                    # Calculate individual StG for this calibration point
+                    # This creates the per-point transformation offset
+                    StG_i = SetVal_i - SRotG @ (mu_i * gaze_i)
+                    
+                    StG_list.append(StG_i)
+                    SetValues_3d.append(screen_points_mm[i].reshape(3,1))
+                
+                # Store for later use
+                self.transform = transform_matrix
+                
+                # Prepare result with desktop-compatible format
+                result = {
+                    "success": True,
+                    "transform_matrix": {
+                        "STransG": transform_matrix,  # 4x4 transformation matrix (like desktop)
+                        "StG": StG_list,  # List of 3x1 vectors
+                        "SetValues": np.array(SetValues_3d),  # (N, 3, 1) array
                     },
-                },
-                "timestamp": datetime.utcnow().isoformat(),
-            }
+                    "calibration_stats": {
+                        "total_frames": len(self.calibration_data),
+                        "targets_used": len(target_groups),
+                        "frames_per_target": {
+                            f"{k[0]},{k[1]}": len(v) for k, v in target_groups.items()
+                        },
+                    },
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+                
+            except Exception as e:
+                logger.error("HomTransform calibration failed, falling back to simple method", error=str(e))
+                # Fallback to original 2D method if HomTransform fails
+                src_aug = np.hstack([gaze_vectors[:, :2], np.ones((gaze_vectors.shape[0], 1))])
+                A, *_ = np.linalg.lstsq(src_aug, screen_points, rcond=None)
+                transform_3x3 = np.vstack([A.T, np.array([0, 0, 1])])
+                transform_matrix = np.eye(4)
+                transform_matrix[:3, :3] = transform_3x3
+                self.transform = transform_matrix
+                
+                result = {
+                    "success": True,
+                    "transform_matrix": {
+                        "STransG": transform_matrix,
+                        "StG": [],
+                        "SetValues": np.column_stack([screen_points, np.ones(len(screen_points))]).reshape(-1, 3, 1),
+                    },
+                    "calibration_stats": {
+                        "total_frames": len(self.calibration_data),
+                        "targets_used": len(target_groups),
+                        "frames_per_target": {
+                            f"{k[0]},{k[1]}": len(v) for k, v in target_groups.items()
+                        },
+                    },
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
 
             logger.info(
                 "Transformation matrix computed successfully",
@@ -255,14 +386,19 @@ class CalibrationService:
         # Prepare data for CSV
         rows = []
         for idx, point in enumerate(self.calibration_data):
+            # Fix coordinate system: invert Z-axis to match desktop convention
+            gaze_vector = point["gaze_vector"].copy() if isinstance(point["gaze_vector"], list) else list(point["gaze_vector"])
+            if len(gaze_vector) > 2:
+                gaze_vector[2] = -gaze_vector[2]  # Invert Z to match desktop
+            
             row = {
                 "Unnamed: 0": idx,
                 "Timestamp": point["timestamp"],
                 "idx": point["frame_index"],
-                "gaze_x": point["gaze_vector"][0],
-                "gaze_y": point["gaze_vector"][1],
+                "gaze_x": gaze_vector[0],
+                "gaze_y": gaze_vector[1],
                 "gaze_z": (
-                    point["gaze_vector"][2] if len(point["gaze_vector"]) > 2 else 0
+                    gaze_vector[2] if len(gaze_vector) > 2 else 0
                 ),
                 "yaw": (
                     point["head_pose"][0]
@@ -279,8 +415,9 @@ class CalibrationService:
                     if isinstance(point["head_pose"], list)
                     else point.get("head_pose", {}).get("roll", 0)
                 ),
-                "set_x": point["target_x"],
-                "set_y": point["target_y"],
+                # Convert normalized target positions to mm coordinates to match desktop format
+                "set_x": point["target_x"] * float(self.screen_info['screen_width_mm']),
+                "set_y": point["target_y"] * float(self.screen_info['screen_height_mm']),
                 "set_z": 0,  # Always 0 for screen calibration
                 "candidate_id": candidate_id,
             }
