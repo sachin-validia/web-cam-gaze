@@ -302,7 +302,7 @@ ls results/interview_calibrations/
 #### 3.2 Database Verification
 ```sql
 -- Connect to database
-mysql -u calibration_user -p calibration_db
+mysql -u validia -p calibration_db
 
 -- Check tables
 SHOW TABLES;
@@ -313,6 +313,10 @@ SELECT candidate_id, status FROM calibration_sessions;
 ```
 
 ## Troubleshooting
+
+### After running python setup/install.py
+  mysql -u root -p < setup_calibration_db.sql
+  mysql -u root -p calibration_db < web-calibration/backend/db/schema.sql
 
 ### Common Issues
 
